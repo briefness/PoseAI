@@ -1,0 +1,2 @@
+import Vision
+print(VNHumanBodyPoseObservation.JointName.leftShoulder.rawValue.rawValue)

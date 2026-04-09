@@ -1,0 +1,46 @@
+{
+  "coffee_shop": {
+    "points": {
+      "leftShoulder": { "x": 0.40, "y": 0.40 },
+      "rightShoulder": { "x": 0.60, "y": 0.40 },
+      "leftElbow": { "x": 0.30, "y": 0.55 },
+      "rightElbow": { "x": 0.70, "y": 0.55 },
+      "leftWrist": { "x": 0.30, "y": 0.70 },
+      "rightWrist": { "x": 0.70, "y": 0.70 },
+      "leftHip": { "x": 0.45, "y": 0.60 },
+      "rightHip": { "x": 0.55, "y": 0.60 },
+      "neck": { "x": 0.50, "y": 0.35 }
+    }
+  },
+  "beach": {
+    "points": {
+      "leftShoulder": { "x": 0.35, "y": 0.38 },
+      "rightShoulder": { "x": 0.65, "y": 0.38 },
+      "leftElbow": { "x": 0.20, "y": 0.45 },
+      "rightElbow": { "x": 0.80, "y": 0.45 },
+      "leftWrist": { "x": 0.15, "y": 0.40 },
+      "rightWrist": { "x": 0.85, "y": 0.40 },
+      "leftHip": { "x": 0.45, "y": 0.58 },
+      "rightHip": { "x": 0.55, "y": 0.58 },
+      "neck": { "x": 0.50, "y": 0.30 }
+    }
+  },
+  "forest": {
+    "points": {
+      "leftShoulder": { "x": 0.40, "y": 0.38 },
+      "rightShoulder": { "x": 0.60, "y": 0.38 },
+      "leftElbow": { "x": 0.38, "y": 0.52 },
+      "rightElbow": { "x": 0.62, "y": 0.52 },
+      "leftWrist": { "x": 0.45, "y": 0.65 },
+      "rightWrist": { "x": 0.55, "y": 0.65 },
+      "leftHip": { "x": 0.45, "y": 0.60 },
+      "rightHip": { "x": 0.55, "y": 0.60 },
+      "neck": { "x": 0.50, "y": 0.30 }
+    }
+  },
+  "unknown": {
+    "points": {
+      "neck": { "x": 0.50, "y": 0.30 }
+    }
+  }
+}
