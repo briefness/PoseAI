@@ -24,6 +24,7 @@ final class CameraManager: NSObject, ObservableObject {
 
     // MARK: - 私有属性
     private let videoOutput = AVCaptureVideoDataOutput()
+    private let photoOutput = AVCapturePhotoOutput()
     private let motionManager = CMMotionManager()
     private let frameQueue = DispatchQueue(
         label: "com.poseai.videoQueue",
@@ -98,6 +99,13 @@ final class CameraManager: NSObject, ObservableObject {
             }
         }
 
+        // 添加拍照输出（仅首次）
+        if !session.outputs.contains(photoOutput) {
+            if session.canAddOutput(photoOutput) {
+                session.addOutput(photoOutput)
+            }
+        }
+
         // 修正视频方向
         if let connection = videoOutput.connection(with: .video) {
             if connection.isVideoOrientationSupported {
@@ -124,6 +132,43 @@ final class CameraManager: NSObject, ObservableObject {
         DispatchQueue.global(qos: .background).async { [weak self] in
             self?.session.stopRunning()
         }
+    }
+
+    // MARK: - 拍照接口
+    func takePhoto() {
+        // 这里的配置极其重要：防止照出来的原图是横向的或是没有前置镜像的！ (经典底层Bug修复)
+        if let connection = photoOutput.connection(with: .video) {
+            if connection.isVideoOrientationSupported {
+                connection.videoOrientation = .portrait
+            }
+            if connection.isVideoMirroringSupported {
+                connection.isVideoMirrored = isFront
+            }
+        }
+        
+        let settings = AVCapturePhotoSettings()
+        // 建议开启防抖，特别适用于这种需要定格 0.5 秒的抓拍场景
+        settings.photoQualityPrioritization = .balanced
+        photoOutput.capturePhoto(with: settings, delegate: self)
+    }
+}
+
+// MARK: - AVCapturePhotoCaptureDelegate
+extension CameraManager: AVCapturePhotoCaptureDelegate {
+    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        guard error == nil else {
+            print("📸 照片捕获失败: \(String(describing: error))")
+            return
+        }
+        guard let imageData = photo.fileDataRepresentation() else { return }
+        guard let image = UIImage(data: imageData) else { return }
+        
+        // 拍照成功的触觉反馈与屏幕闪烁（这里简单用重型震动代表）
+        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+        
+        // 将照片保存到相册
+        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+        print("📸 照片已成功保存至相册！")
     }
 }
 
