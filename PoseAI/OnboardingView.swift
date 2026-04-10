@@ -5,6 +5,7 @@ import SwiftUI
 struct OnboardingView: View {
     @Binding var isPresented: Bool
     @State private var currentPage: Int = 0
+    @State private var hasAgreedToPrivacy: Bool = false
 
     private let steps: [OnboardingStep] = [
         OnboardingStep(
@@ -88,6 +89,27 @@ struct OnboardingView: View {
                         }
                     }
 
+                    // 隐私协议 (P3-1)
+                    if currentPage == steps.count - 1 {
+                        HStack(spacing: 8) {
+                            Button {
+                                withAnimation { hasAgreedToPrivacy.toggle() }
+                            } label: {
+                                Image(systemName: hasAgreedToPrivacy ? "checkmark.square.fill" : "square")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(hasAgreedToPrivacy ? Color(red: 0.35, green: 0.95, blue: 0.60) : .white.opacity(0.5))
+                            }
+                            Text("我已阅读并同意")
+                                .font(.system(size: 12))
+                                .foregroundColor(.white.opacity(0.6))
+                            Link("《隐私政策》", destination: URL(string: "https://poseai.app/privacy")!)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.white)
+                        }
+                        .padding(.bottom, -8)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+
                     // 下一步 / 开始按钮
                     Button {
                         if currentPage < steps.count - 1 {
@@ -95,8 +117,10 @@ struct OnboardingView: View {
                                 currentPage += 1
                             }
                         } else {
-                            withAnimation(.easeInOut(duration: 0.35)) {
-                                isPresented = false
+                            if hasAgreedToPrivacy {
+                                withAnimation(.easeInOut(duration: 0.35)) {
+                                    isPresented = false
+                                }
                             }
                         }
                     } label: {
@@ -106,27 +130,40 @@ struct OnboardingView: View {
                             Image(systemName: currentPage < steps.count - 1 ? "arrow.right" : "camera.fill")
                                 .font(.system(size: 15, weight: .semibold))
                         }
-                        .foregroundColor(.black)
+                        .foregroundColor((currentPage == steps.count - 1 && !hasAgreedToPrivacy) ? .white.opacity(0.5) : .black)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 17)
                         .background(
-                            currentPage < steps.count - 1
-                                ? Color(red: 1.0, green: 0.82, blue: 0.45)
-                                : Color(red: 0.35, green: 0.95, blue: 0.60),
+                            backgroundColor(for: currentPage, agreed: hasAgreedToPrivacy),
                             in: Capsule()
                         )
                         .shadow(
-                            color: currentPage < steps.count - 1
-                                ? Color(red: 1.0, green: 0.82, blue: 0.45).opacity(0.4)
-                                : Color(red: 0.35, green: 0.95, blue: 0.60).opacity(0.4),
+                            color: shadowColor(for: currentPage, agreed: hasAgreedToPrivacy),
                             radius: 16, y: 6
                         )
                     }
+                    .disabled(currentPage == steps.count - 1 && !hasAgreedToPrivacy)
                     .padding(.horizontal, 32)
                     .animation(.spring(response: 0.35, dampingFraction: 0.75), value: currentPage)
                 }
                 .padding(.bottom, 52)
             }
+        }
+    }
+
+    private func backgroundColor(for page: Int, agreed: Bool) -> Color {
+        if page < steps.count - 1 {
+            return Color(red: 1.0, green: 0.82, blue: 0.45)
+        } else {
+            return agreed ? Color(red: 0.35, green: 0.95, blue: 0.60) : Color.white.opacity(0.15)
+        }
+    }
+
+    private func shadowColor(for page: Int, agreed: Bool) -> Color {
+        if page < steps.count - 1 {
+            return Color(red: 1.0, green: 0.82, blue: 0.45).opacity(0.4)
+        } else {
+            return agreed ? Color(red: 0.35, green: 0.95, blue: 0.60).opacity(0.4) : Color.clear
         }
     }
 }

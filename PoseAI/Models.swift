@@ -127,6 +127,10 @@ enum SceneType: String {
     case coffee_shop = "coffee shop"
     case beach = "beach"
     case forest = "forest"
+    case city_street = "city street"
+    case park = "park"
+    case indoor_home = "indoor home"
+    case neon_night = "neon night"
     case unknown = "unknown"
 
     var displayName: String {
@@ -134,6 +138,10 @@ enum SceneType: String {
         case .coffee_shop: return "咖啡馆"
         case .beach:       return "海边"
         case .forest:      return "森林"
+        case .city_street: return "城市街道"
+        case .park:        return "公园"
+        case .indoor_home: return "室内家居"
+        case .neon_night:  return "夜晚霓虹"
         case .unknown:     return "未知"
         }
     }
@@ -143,6 +151,10 @@ enum SceneType: String {
         case .coffee_shop: return "cup.and.saucer.fill"
         case .beach:       return "figure.pool.swim"
         case .forest:      return "tree.fill"
+        case .city_street: return "building.2.fill"
+        case .park:        return "leaf.fill"
+        case .indoor_home: return "house.fill"
+        case .neon_night:  return "moon.stars.fill"
         case .unknown:     return "viewfinder"
         }
     }
@@ -169,6 +181,10 @@ final class PoseLibrary {
         case .coffee_shop: return coffeePlans
         case .beach:       return beachPlans
         case .forest:      return forestPlans
+        case .city_street: return cityStreetPlans
+        case .park:        return parkPlans
+        case .indoor_home: return indoorHomePlans
+        case .neon_night:  return neonNightPlans
         case .unknown:     return []
         }
     }
@@ -383,6 +399,71 @@ final class PoseLibrary {
                 "rightAnkle":    CGPoint(x: 0.62, y: 0.86)
             ]
         )
+    ]
+
+    // MARK: 城市街道（3 套）
+    private var cityStreetPlans: [ShootingPlan] = [
+        ShootingPlan(id: "city_walk", poseName: "街头大步走", poseEmoji: "🚶‍♀️", poseDescription: "假装不经意走过，抓拍自然动态", composition: .center, frameRatio: .fullBody, voiceGuide: "在画面中心大步往前走或横排走，自然甩动手臂", posePoints: [
+            "neck": CGPoint(x: 0.50, y: 0.28), "leftShoulder": CGPoint(x: 0.40, y: 0.38), "rightShoulder": CGPoint(x: 0.60, y: 0.38),
+            "leftElbow": CGPoint(x: 0.35, y: 0.55), "rightElbow": CGPoint(x: 0.70, y: 0.50), "leftHip": CGPoint(x: 0.45, y: 0.60), "rightHip": CGPoint(x: 0.55, y: 0.60),
+            "leftKnee": CGPoint(x: 0.40, y: 0.75), "rightKnee": CGPoint(x: 0.65, y: 0.70)
+        ]),
+        ShootingPlan(id: "city_lean", poseName: "靠路灯柱", poseEmoji: "🚦", poseDescription: "侧身倚靠，腿交叉拉长比例", composition: .rightThird, frameRatio: .fullBody, voiceGuide: "偏右站立，身体依靠物体，一条腿向镜头前方伸出", posePoints: [
+            "neck": CGPoint(x: 0.65, y: 0.30), "leftShoulder": CGPoint(x: 0.55, y: 0.40), "rightShoulder": CGPoint(x: 0.75, y: 0.40),
+            "leftHip": CGPoint(x: 0.60, y: 0.60), "rightHip": CGPoint(x: 0.70, y: 0.60), "leftAnkle": CGPoint(x: 0.50, y: 0.85), "rightAnkle": CGPoint(x: 0.70, y: 0.85)
+        ]),
+        ShootingPlan(id: "city_lookback", poseName: "回眸一笑", poseEmoji: "👀", poseDescription: "背对镜头走，突然折返看镜头", composition: .goldenLeft, frameRatio: .halfBody, voiceGuide: "左侧构图，身体微侧背对镜头，回头看并带一点笑容", posePoints: [
+            "neck": CGPoint(x: 0.35, y: 0.30), "leftShoulder": CGPoint(x: 0.25, y: 0.42), "rightShoulder": CGPoint(x: 0.45, y: 0.38),
+            "leftHip": CGPoint(x: 0.30, y: 0.65), "rightHip": CGPoint(x: 0.40, y: 0.65)
+        ])
+    ]
+
+    // MARK: 公园（3 套）
+    private var parkPlans: [ShootingPlan] = [
+        ShootingPlan(id: "park_sit", poseName: "草坪席地", poseEmoji: "🧘‍♀️", poseDescription: "盘腿或屈膝坐在草坪上，元气满满", composition: .center, frameRatio: .fullBody, voiceGuide: "在画面中心席地而坐，抱膝或者盘腿，抬头看镜头", posePoints: [
+            "neck": CGPoint(x: 0.50, y: 0.45), "leftShoulder": CGPoint(x: 0.40, y: 0.55), "rightShoulder": CGPoint(x: 0.60, y: 0.55),
+            "leftHip": CGPoint(x: 0.45, y: 0.75), "rightHip": CGPoint(x: 0.55, y: 0.75), "leftKnee": CGPoint(x: 0.35, y: 0.85), "rightKnee": CGPoint(x: 0.65, y: 0.85)
+        ]),
+        ShootingPlan(id: "park_tree", poseName: "大树乘凉", poseEmoji: "🌳", poseDescription: "躲在树荫下，抬头感受阳光", composition: .leftThird, frameRatio: .halfBody, voiceGuide: "偏左构图，背靠大树，微微抬头看树叶的缝隙", posePoints: [
+            "neck": CGPoint(x: 0.30, y: 0.30), "leftShoulder": CGPoint(x: 0.20, y: 0.42), "rightShoulder": CGPoint(x: 0.40, y: 0.42),
+            "leftHip": CGPoint(x: 0.25, y: 0.65), "rightHip": CGPoint(x: 0.35, y: 0.65)
+        ]),
+        ShootingPlan(id: "park_sun", poseName: "手遮阳光", poseEmoji: "☀️", poseDescription: "用手挡住刺眼的阳光，氛围感强", composition: .goldenRight, frameRatio: .halfBody, voiceGuide: "右侧黄金分割点，抬起一只手挡在眼睛上方挡阳光", posePoints: [
+            "neck": CGPoint(x: 0.70, y: 0.30), "leftShoulder": CGPoint(x: 0.60, y: 0.40), "rightShoulder": CGPoint(x: 0.80, y: 0.40),
+            "leftElbow": CGPoint(x: 0.55, y: 0.55), "leftWrist": CGPoint(x: 0.65, y: 0.30), "rightHip": CGPoint(x: 0.75, y: 0.65)
+        ])
+    ]
+
+    // MARK: 室内家居（3 套）
+    private var indoorHomePlans: [ShootingPlan] = [
+        ShootingPlan(id: "home_sofa", poseName: "沙发慵懒", poseEmoji: "🛋️", poseDescription: "靠在沙发里，随意放松", composition: .center, frameRatio: .halfBody, voiceGuide: "居中构图，在沙发上找个舒服的姿势靠着，很放松地看镜头", posePoints: [
+            "neck": CGPoint(x: 0.50, y: 0.35), "leftShoulder": CGPoint(x: 0.35, y: 0.45), "rightShoulder": CGPoint(x: 0.65, y: 0.45),
+            "leftElbow": CGPoint(x: 0.25, y: 0.50), "rightElbow": CGPoint(x: 0.75, y: 0.50), "leftHip": CGPoint(x: 0.45, y: 0.70), "rightHip": CGPoint(x: 0.55, y: 0.70)
+        ]),
+        ShootingPlan(id: "home_window", poseName: "窗台托腮", poseEmoji: "🪟", poseDescription: "趴在窗台上看风景，宁静自在", composition: .leftThird, frameRatio: .halfBody, voiceGuide: "在画面左侧，手肘撑在台面上托住下巴", posePoints: [
+            "neck": CGPoint(x: 0.35, y: 0.40), "leftShoulder": CGPoint(x: 0.25, y: 0.50), "rightShoulder": CGPoint(x: 0.45, y: 0.50),
+            "leftElbow": CGPoint(x: 0.30, y: 0.65), "leftWrist": CGPoint(x: 0.32, y: 0.45)
+        ]),
+        ShootingPlan(id: "home_hug", poseName: "抱枕卖萌", poseEmoji: "🧸", poseDescription: "抱紧抱枕或宠物，增加亲近感", composition: .goldenRight, frameRatio: .halfBody, voiceGuide: "在偏右的位置，双手抱住一个软萌物体在胸前", posePoints: [
+            "neck": CGPoint(x: 0.70, y: 0.30), "leftShoulder": CGPoint(x: 0.60, y: 0.42), "rightShoulder": CGPoint(x: 0.80, y: 0.42),
+            "leftWrist": CGPoint(x: 0.65, y: 0.55), "rightWrist": CGPoint(x: 0.75, y: 0.55)
+        ])
+    ]
+
+    // MARK: 夜晚霓虹（3 套）
+    private var neonNightPlans: [ShootingPlan] = [
+        ShootingPlan(id: "neon_back", poseName: "霓虹背影", poseEmoji: "🌃", poseDescription: "留出大片夜景，人物作为剪影点缀", composition: .center, frameRatio: .fullBody, voiceGuide: "背对镜头站立，面朝前方的灯光，中心构图", posePoints: [
+            "neck": CGPoint(x: 0.50, y: 0.40), "leftShoulder": CGPoint(x: 0.40, y: 0.48), "rightShoulder": CGPoint(x: 0.60, y: 0.48),
+            "leftHip": CGPoint(x: 0.45, y: 0.65), "rightHip": CGPoint(x: 0.55, y: 0.65), "leftKnee": CGPoint(x: 0.40, y: 0.80), "rightKnee": CGPoint(x: 0.60, y: 0.80)
+        ]),
+        ShootingPlan(id: "neon_lookback", poseName: "借光回望", poseEmoji: "✨", poseDescription: "让店面的霓虹灯照亮侧脸", composition: .goldenLeft, frameRatio: .halfBody, voiceGuide: "站到画面左边，侧脸借旁边霓虹的灯光，有电影女主角的感觉", posePoints: [
+            "neck": CGPoint(x: 0.30, y: 0.30), "leftShoulder": CGPoint(x: 0.20, y: 0.42), "rightShoulder": CGPoint(x: 0.40, y: 0.42),
+            "leftHip": CGPoint(x: 0.25, y: 0.65), "rightHip": CGPoint(x: 0.35, y: 0.65)
+        ]),
+        ShootingPlan(id: "neon_umbrella", poseName: "夜雨撑伞", poseEmoji: "☔️", poseDescription: "如果是雨夜，透明伞是绝佳道具", composition: .rightThird, frameRatio: .fullBody, voiceGuide: "右侧站立，单手假装或真的撑伞，肩颈放松", posePoints: [
+            "neck": CGPoint(x: 0.70, y: 0.35), "leftShoulder": CGPoint(x: 0.60, y: 0.45), "rightShoulder": CGPoint(x: 0.80, y: 0.45),
+            "rightWrist": CGPoint(x: 0.85, y: 0.25), "leftHip": CGPoint(x: 0.65, y: 0.60), "rightHip": CGPoint(x: 0.75, y: 0.60)
+        ])
     ]
 }
 

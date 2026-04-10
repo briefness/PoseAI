@@ -53,7 +53,17 @@ struct ContentView: View {
     @State private var compositionTipTask: DispatchWorkItem? = nil
     @State private var scanTimeoutTask: DispatchWorkItem? = nil
     @State private var planChangeAnimate: Bool = false
-    @State private var capturedImage: UIImage? = nil   // 拍照完成后触发预览弹窗
+
+    // MARK: - 连拍与历史状态 (P2-1, P2-2)
+    @State private var burstImages: [UIImage] = []
+    @State private var expectedBurstCount: Int = 1
+    @State private var isReviewingPhotos: Bool = false
+    @State private var sessionSavedImages: [UIImage] = []
+    @State private var showSessionGallery: Bool = false
+
+    // MARK: - 内购状态 (P3-3)
+    @AppStorage("isPro") var isPro = false
+    @State private var showPaywall = false
 
     // MARK: - 倒计时自拍
     @State private var timerSeconds: Int = 0           // 0=关闭, 3/5/10
@@ -71,6 +81,15 @@ struct ContentView: View {
 
     // MARK: - 常量
     private let successThreshold: Double = 85
+
+    // MARK: - 计算属性
+    private var isPremiumScene: Bool {
+        [.city_street, .park, .indoor_home, .neon_night].contains(scene)
+    }
+    
+    private var requiresProUnlock: Bool {
+        isPremiumScene && !isPro
+    }
 
     private var currentPlan: ShootingPlan? {
         let plans = scene.plans
@@ -92,17 +111,23 @@ struct ContentView: View {
             if !isSceneReady {
                 sceneScanningOverlay
             } else if let plan = currentPlan {
-                SilhouetteGuideOverlay(
-                    isAligned: Binding(get: { isReady }, set: { _ in }),
-                    plan: plan,
-                    bodyBoundingBox: bodyBoundingBox
-                )
-                .transition(.opacity.animation(.easeInOut(duration: 0.5)))
-                .animation(.easeInOut(duration: 0.4), value: currentPlanIndex)
+                if requiresProUnlock {
+                    paywallTeaser
+                } else {
+                    SilhouetteGuideOverlay(
+                        isAligned: Binding(get: { isReady }, set: { _ in }),
+                        plan: plan,
+                        bodyBoundingBox: bodyBoundingBox
+                    )
+                    .transition(.opacity.animation(.easeInOut(duration: 0.5)))
+                    .animation(.easeInOut(duration: 0.4), value: currentPlanIndex)
+                }
             }
 
-            if isSceneReady, currentPlan?.frameRatio == .fullBody {
-                arFootprintsOverlay
+            if !requiresProUnlock {
+                if isSceneReady, currentPlan?.frameRatio == .fullBody {
+                    arFootprintsOverlay
+                }
             }
 
             // 顶部信息栏
@@ -114,7 +139,7 @@ struct ContentView: View {
             }
 
             // 构图提示浮层
-            if showCompositionTip, let plan = currentPlan {
+            if !requiresProUnlock, showCompositionTip, let plan = currentPlan {
                 compositionTipOverlay(plan: plan)
             }
 
@@ -163,21 +188,24 @@ struct ContentView: View {
         .sheet(isPresented: $showGuide) {
             PoseGuideSheet(plan: currentPlan, scene: scene)
         }
-        .fullScreenCover(item: Binding(
-            get: { capturedImage.map { IdentifiableImage(image: $0) } },
-            set: { if $0 == nil { capturedImage = nil } }
-        )) { item in
-            PhotoPreviewView(image: item.image) {
+        .fullScreenCover(isPresented: $isReviewingPhotos) {
+            PhotoPreviewView(images: burstImages) { selectedImage in
                 // 用户点「保存」
-                UIImageWriteToSavedPhotosAlbum(item.image, nil, nil, nil)
+                UIImageWriteToSavedPhotosAlbum(selectedImage, nil, nil, nil)
+                sessionSavedImages.append(selectedImage)
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                capturedImage = nil
+                isReviewingPhotos = false
             } onRetake: {
                 // 用户点「重拍」
-                capturedImage = nil
+                isReviewingPhotos = false
             }
         }
-
+        .sheet(isPresented: $showSessionGallery) {
+            SessionGallerySheet(images: sessionSavedImages)
+        }
+        .fullScreenCover(isPresented: $showPaywall) {
+            PaywallView()
+        }
     }
 
     // MARK: - 摄像头层
@@ -501,16 +529,27 @@ struct ContentView: View {
     // MARK: - 主控制行
     private var controlRow: some View {
         HStack(spacing: 0) {
-            // 左：切换摄像头
-            Button { manager.isFront.toggle() } label: {
+            // 左：历史缩略图 (P2-2)
+            Button { 
+                if !sessionSavedImages.isEmpty { showSessionGallery = true }
+            } label: {
                 ZStack {
-                    Circle()
+                    RoundedRectangle(cornerRadius: 12)
                         .fill(Design.surface)
                         .frame(width: 50, height: 50)
-                        .overlay(Circle().stroke(Design.border, lineWidth: 1))
-                    Image(systemName: "arrow.triangle.2.circlepath.camera")
-                        .font(.system(size: 19, weight: .medium))
-                        .foregroundColor(.white)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Design.border, lineWidth: 1))
+                    
+                    if let lastImg = sessionSavedImages.last {
+                        Image(uiImage: lastImg)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 50, height: 50)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    } else {
+                        Image(systemName: "photo.on.rectangle")
+                            .font(.system(size: 19, weight: .medium))
+                            .foregroundColor(.white)
+                    }
                 }
             }
             .frame(maxWidth: .infinity)
@@ -519,26 +558,73 @@ struct ContentView: View {
             shutterButton
                 .onTapGesture { handleShutterTap() }
 
-            // 右：倒计时选择器（关 / 3s / 5s / 10s）
-            Button { cycleTimer() } label: {
-                ZStack {
-                    Circle()
-                        .fill(timerSeconds > 0 ? Design.accent.opacity(0.18) : Design.surface)
-                        .frame(width: 50, height: 50)
-                        .overlay(Circle().stroke(timerSeconds > 0 ? Design.accent.opacity(0.6) : Design.border, lineWidth: 1))
-                    if timerSeconds == 0 {
-                        Image(systemName: "timer")
-                            .font(.system(size: 19, weight: .medium))
-                            .foregroundColor(Design.textSecondary)
-                    } else {
-                        Text("\(timerSeconds)s")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(Design.accent)
+            // 右：翻转摄像头与倒计时
+            HStack(spacing: 12) {
+                // 切换摄像头
+                Button { manager.isFront.toggle() } label: {
+                    ZStack {
+                        Circle()
+                            .fill(Design.surface)
+                            .frame(width: 44, height: 44)
+                            .overlay(Circle().stroke(Design.border, lineWidth: 1))
+                        Image(systemName: "arrow.triangle.2.circlepath.camera")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundColor(.white)
+                    }
+                }
+                
+                // 倒计时
+                Button { cycleTimer() } label: {
+                    ZStack {
+                        Circle()
+                            .fill(timerSeconds > 0 ? Design.accent.opacity(0.18) : Design.surface)
+                            .frame(width: 44, height: 44)
+                            .overlay(Circle().stroke(timerSeconds > 0 ? Design.accent.opacity(0.6) : Design.border, lineWidth: 1))
+                        if timerSeconds == 0 {
+                            Image(systemName: "timer")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundColor(Design.textSecondary)
+                        } else {
+                            Text("\(timerSeconds)s")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(Design.accent)
+                        }
                     }
                 }
             }
             .frame(maxWidth: .infinity)
         }
+    }
+
+    // MARK: - 内购拦截浮层
+    private var paywallTeaser: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "crown.fill")
+                .font(.system(size: 44))
+                .foregroundColor(Color(red: 1.0, green: 0.82, blue: 0.45))
+            Text("「\(scene.displayName)」是高级场景")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(.white)
+            Text("升级 Pro 即可使用专属姿势与满级体验")
+                .font(.system(size: 14))
+                .foregroundColor(.white.opacity(0.8))
+            Button {
+                showPaywall = true
+            } label: {
+                Text("了解 Pro 特权")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 10)
+                    .background(Color(red: 1.0, green: 0.82, blue: 0.45), in: Capsule())
+            }
+        }
+        .padding(.horizontal, 32)
+        .padding(.vertical, 28)
+        .background(Color.black.opacity(0.65).blur(radius: 20))
+        .background(Color.black.opacity(0.3))
+        .cornerRadius(24)
+        .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color.white.opacity(0.15), lineWidth: 1))
     }
 
     // MARK: - 快门按钮（精致版）
@@ -759,7 +845,10 @@ struct ContentView: View {
         }
 
         manager.onPhotoCapture = { [self] image in
-            self.capturedImage = image
+            self.burstImages.append(image)
+            if self.burstImages.count >= self.expectedBurstCount {
+                self.isReviewingPhotos = true
+            }
         }
 
         manager.visionService.onLowLight = { [self] isLow in
@@ -795,11 +884,39 @@ struct ContentView: View {
     }
 
     private func triggerAutoPhoto() {
-        speak("拍好了！")
-        manager.takePhoto()
-        triggerFlash()
+        let finalCount = isPro ? 3 : 1
+        speak(isPro ? "拍好了！连拍三张" : "拍好了")
+        takeBurst(count: finalCount)
         score = 0
         stableStartTime = nil
+    }
+
+    private func triggerManualPhoto() {
+        takeBurst(count: 1)
+    }
+
+    private func takeBurst(count: Int) {
+        guard !isCapturing else { return }
+        isCapturing = true
+        expectedBurstCount = count
+        burstImages.removeAll()
+        var taken = 0
+        
+        func snap() {
+            guard taken < count else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { self.isCapturing = false }
+                return
+            }
+            manager.takePhoto()
+            triggerFlash()
+            taken += 1
+            if taken < count {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    snap()
+                }
+            }
+        }
+        snap()
     }
 
     // MARK: - 倒计时循环切换
@@ -846,13 +963,6 @@ struct ContentView: View {
         countdown = 0
         timerTask?.cancel()
         timerTask = nil
-    }
-
-    private func triggerManualPhoto() {
-        isCapturing = true
-        manager.takePhoto()
-        triggerFlash()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { self.isCapturing = false }
     }
 
     private func triggerFlash() {
@@ -1331,24 +1441,34 @@ struct IdentifiableImage: Identifiable {
 
 // MARK: - 照片预览页（拍照后展示，用户确认保存）
 struct PhotoPreviewView: View {
-    let image: UIImage
-    let onSave: () -> Void
+    let images: [UIImage]
+    let onSave: (UIImage) -> Void
     let onRetake: () -> Void
 
+    @AppStorage("isPro") var isPro = false
     @State private var appeared = false
+    @State private var selectedIndex = 0
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
             // 全屏照片
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
+            if !images.isEmpty {
+                TabView(selection: $selectedIndex) {
+                    ForEach(Array(images.enumerated()), id: \.offset) { idx, img in
+                        Image(uiImage: img)
+                            .resizable()
+                            .scaledToFit()
+                            .tag(idx)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
                 .ignoresSafeArea()
                 .scaleEffect(appeared ? 1.0 : 1.05)
                 .opacity(appeared ? 1.0 : 0)
                 .animation(.easeOut(duration: 0.3), value: appeared)
+            }
 
             // 顶部渐变遮罩
             VStack {
@@ -1362,13 +1482,38 @@ struct PhotoPreviewView: View {
             }
 
             // 底部渐变遮罩 + 按钮
-            VStack {
+            VStack(spacing: 0) {
                 Spacer()
+
+                // 图片选择器 (仅当有连拍时显示)
+                if images.count > 1 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(Array(images.enumerated()), id: \.offset) { idx, img in
+                                Image(uiImage: img)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 50, height: 50)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(selectedIndex == idx ? Design.accent : Color.clear, lineWidth: 2)
+                                    )
+                                    .onTapGesture {
+                                        withAnimation { selectedIndex = idx }
+                                    }
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                    }
+                    .padding(.bottom, 20)
+                }
+
                 LinearGradient(
                     colors: [.clear, .black.opacity(0.75)],
                     startPoint: .top, endPoint: .bottom
                 )
-                .frame(height: 180)
+                .frame(height: 120)
                 .overlay(
                     HStack(spacing: 16) {
                         // 重拍
@@ -1384,7 +1529,11 @@ struct PhotoPreviewView: View {
                         }
 
                         // 保存
-                        Button(action: onSave) {
+                        Button {
+                            if selectedIndex < images.count {
+                                onSave(images[selectedIndex])
+                            }
+                        } label: {
                             VStack(spacing: 6) {
                                 ZStack {
                                     Circle()
@@ -1400,9 +1549,11 @@ struct PhotoPreviewView: View {
                             }
                         }
 
-                        // 分享（预留，P2-4）
+                        // 分享（P2-4 加入水印）
                         Button {
-                            let av = UIActivityViewController(activityItems: [image], applicationActivities: nil)
+                            guard selectedIndex < images.count else { return }
+                            let watermarkedImg = isPro ? images[selectedIndex] : images[selectedIndex].withPoseAIWatermark()
+                            let av = UIActivityViewController(activityItems: [watermarkedImg], applicationActivities: nil)
                             if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                                let root = scene.windows.first?.rootViewController {
                                 root.present(av, animated: true)
@@ -1431,5 +1582,249 @@ struct PhotoPreviewView: View {
     }
 }
 
+// MARK: - 水印扩展 (P2-4)
+extension UIImage {
+    func withPoseAIWatermark() -> UIImage {
+        let size = self.size
+        UIGraphicsBeginImageContextWithOptions(size, false, self.scale)
+        self.draw(in: CGRect(origin: .zero, size: size))
+        
+        let text = " 📸 Shot on PoseAI " as NSString
+        // 字体大小自适应图片
+        let fontSize = max(size.width, size.height) * 0.015
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.boldSystemFont(ofSize: fontSize),
+            .foregroundColor: UIColor.white.withAlphaComponent(0.9),
+            .backgroundColor: UIColor.black.withAlphaComponent(0.3)
+        ]
+        
+        let textSize = text.size(withAttributes: attributes)
+        // 右下角 2% padding
+        let padding = size.width * 0.02
+        let rect = CGRect(
+            x: size.width - textSize.width - padding,
+            y: size.height - textSize.height - padding,
+            width: textSize.width,
+            height: textSize.height
+        )
+        // 绘制带圆角的背景（如果想追求更好效果可用 UIBezierPath 画带圆角的背景）
+        let bgPath = UIBezierPath(roundedRect: rect.insetBy(dx: -8, dy: -4), cornerRadius: 8)
+        UIColor.black.withAlphaComponent(0.4).setFill()
+        bgPath.fill()
+        
+        text.draw(in: rect, withAttributes: attributes)
+        
+        let watermarkedImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        
+        return watermarkedImage ?? self
+    }
+}
+
 #Preview { ContentView() }
 
+// MARK: - 拍摄历史相册
+struct SessionGallerySheet: View {
+    let images: [UIImage]
+    @Environment(\.dismiss) var dismiss
+    @State private var selectedImage: UIImage? = nil
+
+    let columns = [GridItem(.adaptive(minimum: 100), spacing: 2)]
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 2) {
+                    ForEach(Array(images.enumerated()), id: \.offset) { idx, img in
+                        Image(uiImage: img)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                            .aspectRatio(1, contentMode: .fill)
+                            .clipped()
+                            .onTapGesture { selectedImage = img }
+                    }
+                }
+            }
+            .navigationTitle("本次拍摄 (\(images.count))")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+            .sheet(item: Binding(
+                get: { selectedImage.map { IdentifiableImage(image: $0) } },
+                set: { if $0 == nil { selectedImage = nil } }
+            )) { wrapper in
+                ZStack {
+                    Color.black.ignoresSafeArea()
+                    Image(uiImage: wrapper.image)
+                        .resizable()
+                        .scaledToFit()
+                        .ignoresSafeArea()
+                    VStack {
+                        HStack {
+                            Button { selectedImage = nil } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 28))
+                                    .foregroundColor(.white.opacity(0.8))
+                                    .padding()
+                            }
+                            Spacer()
+                        }
+                        Spacer()
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Paywall View
+struct PaywallView: View {
+    @Environment(\.dismiss) var dismiss
+    @AppStorage("isPro") var isPro = false
+    
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            
+            // 背景渐变
+            LinearGradient(
+                colors: [Color(red: 0.1, green: 0.1, blue: 0.15), .black],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+            
+            VStack(spacing: 30) {
+                // 顶部关闭按钮
+                HStack {
+                    Spacer()
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundColor(.white.opacity(0.3))
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 20)
+                
+                // 图标
+                ZStack {
+                    Circle()
+                        .fill(RadialGradient(
+                            colors: [Color(red: 1.0, green: 0.82, blue: 0.45).opacity(0.3), .clear],
+                            center: .center, startRadius: 10, endRadius: 80
+                        ))
+                        .frame(width: 140, height: 140)
+                    
+                    Image(systemName: "crown.fill")
+                        .font(.system(size: 60))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [Color(red: 1.0, green: 0.82, blue: 0.45), Color(red: 1.0, green: 0.6, blue: 0.2)],
+                                startPoint: .top, endPoint: .bottom
+                            )
+                        )
+                        .shadow(color: Color(red: 1.0, green: 0.82, blue: 0.45).opacity(0.5), radius: 10, x: 0, y: 5)
+                }
+                
+                // 标题
+                VStack(spacing: 8) {
+                    Text("解锁 PoseAI Pro")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundColor(.white)
+                    Text("释放完整拍摄潜力，拍出电影级大片")
+                        .font(.system(size: 15))
+                        .foregroundColor(.white.opacity(0.6))
+                }
+                
+                // 特权列表
+                VStack(alignment: .leading, spacing: 20) {
+                    ProFeatureRow(icon: "sparkles", title: "全场景方案库", desc: "解锁街道、公园、家居等专属姿势推荐")
+                    ProFeatureRow(icon: "camera.burst.fill", title: "阵发无限连拍", desc: "不再局限于单张，高速抓拍不错过任何瞬间")
+                    ProFeatureRow(icon: "photo.badge.plus", title: "无水印纯净保存", desc: "解锁取消专属底标的功能配置")
+                }
+                .padding(.horizontal, 32)
+                .padding(.top, 10)
+                
+                Spacer()
+                
+                // 购买按钮区域
+                VStack(spacing: 16) {
+                    Text("限时优惠：¥98 / 终身买断")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(Color(red: 1.0, green: 0.82, blue: 0.45))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color(red: 1.0, green: 0.82, blue: 0.45).opacity(0.15), in: Capsule())
+                    
+                    Button {
+                        // 模拟购买成功
+                        withAnimation {
+                            isPro = true
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            dismiss()
+                        }
+                    } label: {
+                        Text("立即升级")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundColor(.black)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                LinearGradient(
+                                    colors: [Color(red: 1.0, green: 0.82, blue: 0.45), Color(red: 1.0, green: 0.7, blue: 0.3)],
+                                    startPoint: .topLeading, endPoint: .bottomTrailing
+                                ),
+                                in: Capsule()
+                            )
+                            .shadow(color: Color(red: 1.0, green: 0.82, blue: 0.45).opacity(0.4), radius: 12, y: 5)
+                    }
+                    
+                    HStack(spacing: 20) {
+                        Button("恢复购买") { }
+                        Button("服务条款") { }
+                    }
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.4))
+                }
+                .padding(.horizontal, 32)
+                .padding(.bottom, 40)
+            }
+        }
+    }
+}
+
+private struct ProFeatureRow: View {
+    let icon: String
+    let title: String
+    let desc: String
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(Color(red: 1.0, green: 0.82, blue: 0.45).opacity(0.15))
+                    .frame(width: 44, height: 44)
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(Color(red: 1.0, green: 0.82, blue: 0.45))
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                Text(desc)
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.6))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
