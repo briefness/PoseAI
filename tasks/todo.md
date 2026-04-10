@@ -41,25 +41,33 @@
 
 ---
 
-## P4 — 稳定性与体验加固（按 ROI 由高到低排序）
+## P4 — 稳定性与体验加固（按 ROI 由高到低排序，含 Hardened 模式技术债修复）
 
-- [ ] **P4-1 后台自动暂停** `30min` `Bug修复级`
+- [x] **P4-0 VisionService 底层处理堵塞与泄漏 (Staff/Hardened 级别修复)**
+  - 移除 `visionQueue.async` 以阻塞 Delegate，正确触发 `alwaysDiscardsLateVideoFrames`，消除由于帧积压导致长达 0.5~1s 的画面/推断脱节。
+  - 将面部检测与姿态检测合并到一个 Pipeline (VNDetectFaceRectanglesRequest) 优化执行效率。
+- [x] **P4-0 深入修复 AVCaptureDevice 点测光坐标系倒置 (Staff/Hardened 级别修复)**
+  - `AVCaptureDevice` 的 `exposurePointOfInterest` 接受底层原生传感器坐标（Landscape Left/Right 视摄像头而定），而不是 `videoOrientation` 转正后的竖屏坐标系。需校正 X/Y 轴与镜像反转映射关系，防止曝光目标跳变。
+- [x] **P4-0 修复 ContentView 在后台返回时的盲目 Camera 唤醒 (Staff/Hardened 级别修复)**
+  - 当全屏遮罩 `isReviewingPhotos` 或 `showPaywall` 展现在顶部，由后台返回至前台时，不应调用 `manager.start()`。
+
+- [x] **P4-1 后台自动暂停** `30min` `Bug修复级`
   - 监听 `UIApplication.willResignActiveNotification` → `manager.stop()` + `synthesizer.stopSpeaking()`
   - 监听 `UIApplication.didBecomeActiveNotification` → `manager.start()`
   - 当前仅依赖 `onDisappear`，SwiftUI 切后台时不一定触发，用户后台持续耗电
-- [ ] **P4-2 性能降级策略** `1h` `稳定性`
+- [x] **P4-2 性能降级策略** `1h` `稳定性`
   - `ProcessInfo.processInfo.thermalState` >= `.serious` 或 `UIDevice.current.batteryLevel` < 0.1 时启用降级
   - 在 `captureOutput` 中引入帧计数器做 frame skip（隔帧丢弃），而非修改 Session 帧率（避免预览层也降帧）
   - Vision 推理频率从 30fps → 15fps，场景分类间隔从 2s → 4s
-- [ ] **P4-3 Review Prompt 打分拦截** `30min` `商业化`
+- [x] **P4-3 Review Prompt 打分拦截** `30min` `商业化`
   - 保存照片计数 >= 3 且最近一次匹配度 > 85% 时调用 `SKStoreReviewController.requestReview()`
   - `@AppStorage("reviewRequestCount")` 控制每月最多请求 2 次
 - [x] **P4-4 自动生成带特定水印图处理**（已随 P2-4 和 P3-3 完成基本业务闭环）
-- [ ] **P4-5 关节坐标 EMA 平滑** `1h` `体验优化`
+- [x] **P4-5 关节坐标 EMA 平滑** `1h` `体验优化`
   - 对 `VisionService.handlePose` 输出的 13 个关节坐标做指数移动平均：`smoothed = old * 0.6 + new * 0.4`
   - 替代原计划的 Kalman Filter，实现更简单且覆盖 90% 场景
   - 主要收益在暗光环境下抑制骨架抖动
-- [ ] **P4-6 剪影左右标注** `30min` `体验优化`
+- [x] **P4-6 剪影左右标注** `30min` `体验优化`
   - 替代原镜像模式（Mirror Mode）：在剪影上直接标注「左手」「右手」文字
   - 成本远低于完整镜像翻转，解决前置摄像头下用户分不清左右的痛点
 
@@ -69,14 +77,14 @@
 
 > 聚焦"一键出大片"的核心体验，已移除性能风险高或设备兼容性差的功能。
 
-- [ ] **P5-1 仪式感物理反馈与柔和补光** `1h` `快速收益`
+- [x] **P5-1 仪式感物理反馈与柔和补光** `1h` `快速收益`
   - **快门音**：`AVAudioPlayer` 播放复古机械快门音效（需准备 .wav 资源文件）
   - **精准震动**：匹配 > 85% 瞬间用 `UIImpactFeedbackGenerator(style: .rigid)` 给确认感（复用已有 `hapticCooldown`）
   - **柔和屏幕补光**：将已有 `showShutterFlash` 从纯白改为暖白色 `Color(red:1.0, green:0.95, blue:0.88)` + 持续 0.3s + 临时 `UIScreen.main.brightness = 1.0`
-- [ ] **P5-2 智能裁切双底片 + 画幅适配** `2h` `差异化`
+- [x] **P5-2 智能裁切双底片 + 画幅适配** `2h` `差异化`
   - **Auto-Crop**：利用 Vision bbox 一次快门保存两张底片（全身原图 + 胸腰特写版），用 `CGImage.cropping(to:)` 实现
   - **社交画幅预设**：提供 16:9 / 4:3 / 1:1 / 2.35:1 画幅遮罩选择（合并原 P2-4.1 社交安全区需求）
-- [ ] **P5-3 留白智能提醒** `1h` `体验优化`
+- [x] **P5-3 留白智能提醒** `1h` `体验优化`
   - 基于已有 `bodyBoundingBox` 计算人像在画面中的水平偏移量
   - 当 bbox 中心偏离画面中心 < 5% 时，UI 浮现提示"尝试向左右平移增加留白氛围感"
   - 零额外性能开销（复用已有数据）
@@ -87,12 +95,12 @@
     3. `日系清透 Light`：`CIExposureAdjust(+0.3)` + `CIVibrance(-0.2)` 低对比过曝
     4. `城市霓虹 Neon`：`CIColorMatrix` Teal & Orange 青橙赛博朋克
   - 实时预览 LUT（V2）需自定义 Metal 渲染层替换 AVCaptureVideoPreviewLayer，暂不纳入
-- [ ] **P5-5 人脸 EV 曝光补偿** `2h` `进阶`
+- [x] **P5-5 人脸 EV 曝光补偿** `2h` `进阶`
   - 利用 Vision 人脸检测锁定坐标后，通过 `AVCaptureDevice.setExposureTargetBias(+0.3~0.7)` 提供人脸提亮
   - 人脸检测必须节流至每 2s 一次（与场景分类同频），避免与 30fps 姿态检测叠加
   - `setExposureTargetBias` 设置一次即持续生效，无需高频更新
   - 不依赖深度 API，兼容所有 A12+ 机型
-- [ ] **P5-6 黄金螺旋线构图** `1h` `可选`
+- [x] **P5-6 黄金螺旋线构图** `1h` `可选`
   - 匹配卧姿/侧向姿势时可选替代三分法网格
   - 仅绘制 UI 装饰线，无额外计算
 
@@ -129,3 +137,13 @@
 | 2026-04-10 | P3-1 隐私协议界面拦截验证接入 | ✅ |
 | 2026-04-10 | P3-3 内购设计：权限阻断、全屏 Paywall 推广页及无水印特权 | ✅ |
 | 2026-04-10 | P4/P5 路线图审查重构 | ✅ 移除 5 项不合理需求，重排优先级 |
+| 2026-04-10 | P4-1 后台自动暂停 | ✅ 监听 NotificationCenter |
+| 2026-04-10 | P4-2 性能降级策略 | ✅ 根据温度与电量隔帧运算 |
+| 2026-04-10 | P4-3 Review Prompt | ✅ 基于照片保存数与当月请求计数打扰拦截 |
+| 2026-04-10 | P4-5 关节坐标 EMA 平滑 | ✅ |
+| 2026-04-10 | P4-6 剪影左右标注 | ✅ 替代原始镜像重构方案实现标注 |
+| 2026-04-10 | P5-1 仪式感物理反馈与柔和补光 | ✅ |
+| 2026-04-10 | P5-3 留白智能提醒 | ✅ |
+| 2026-04-10 | P5-2 智能裁切双底片 | ✅ 在 onPhotoCapture 时利用 bbox 的相对坐标执行 CGImage.cropping 导出特写 |
+| 2026-04-10 | P5-5 人脸 EV 曝光补偿 | ✅ VisionService 2s 定期添加 VNFaceObservation 请求并反馈给 CameraManager 执行曝光靶心改变 |
+| 2026-04-10 | P5-6 黄金螺旋线构图 | ✅ Canvas 自定义绘制贝塞尔曲线螺旋 |

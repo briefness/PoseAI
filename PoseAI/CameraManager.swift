@@ -37,6 +37,7 @@ final class CameraManager: NSObject, ObservableObject {
     // MARK: - Init
     override init() {
         super.init()
+        UIDevice.current.isBatteryMonitoringEnabled = true
         checkAuthorization()
         startMotionTracking()
     }
@@ -137,6 +138,43 @@ final class CameraManager: NSObject, ObservableObject {
         }
     }
 
+    // MARK: - P5-5 人脸曝光补偿
+    func setFaceExposure(faceRect: CGRect?) {
+        guard let device = session.inputs.compactMap({ ($0 as? AVCaptureDeviceInput)?.device }).first else { return }
+        do {
+            try device.lockForConfiguration()
+            if let rect = faceRect {
+                if device.isExposurePointOfInterestSupported {
+                    // Vision 传入的是基于 `videoOrientation = .portrait` 的转正坐标系 (0,0在左下角，经过倒置 rect 为标准坐标系)
+                    // 但 `exposurePointOfInterest` 接受的是原生底层 Sensor 的物理 Landscape 坐标系！
+                    // 后置镜头原生为 LandscapeRight，前置镜头原生为 LandscapeRight但横向镜像。
+                    // 因此需要把竖屏空间 (Portrait) 映射回传感器的 Landscape 空间
+                    let sensorX: CGFloat
+                    let sensorY: CGFloat
+                    if isFront {
+                        sensorX = 1.0 - rect.midY
+                        sensorY = 1.0 - rect.midX
+                    } else {
+                        sensorX = rect.midY
+                        sensorY = rect.midX
+                    }
+                    device.exposurePointOfInterest = CGPoint(x: sensorX, y: sensorY)
+                    device.exposureMode = .continuousAutoExposure
+                }
+                device.setExposureTargetBias(0.5, completionHandler: nil)
+            } else {
+                if device.isExposurePointOfInterestSupported {
+                    device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                    device.exposureMode = .continuousAutoExposure
+                }
+                device.setExposureTargetBias(0.0, completionHandler: nil)
+            }
+            device.unlockForConfiguration()
+        } catch {
+            print("[CameraManager] Failed to lock device for exposure bias.")
+        }
+    }
+
     // MARK: - 拍照接口
     func takePhoto() {
         // 这里的配置极其重要：防止照出来的原图是横向的或是没有前置镜像的！ (经典底层Bug修复)
@@ -178,12 +216,25 @@ extension CameraManager: AVCapturePhotoCaptureDelegate {
 
 // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
 extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
+    private struct State { static var frameCounter: Int = 0 }
+
     func captureOutput(
         _ output: AVCaptureOutput,
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
-        visionService.process(sampleBuffer)
+        let thermal = ProcessInfo.processInfo.thermalState
+        let isDegraded = thermal == .serious || thermal == .critical ||
+                         (UIDevice.current.batteryState != .charging && UIDevice.current.batteryLevel > 0 && UIDevice.current.batteryLevel < 0.1)
+                         
+        if isDegraded {
+            State.frameCounter += 1
+            if State.frameCounter % 2 != 0 { return }
+        } else {
+            State.frameCounter = 0
+        }
+        
+        visionService.process(sampleBuffer, isDegraded: isDegraded)
     }
 }
 

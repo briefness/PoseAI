@@ -6,10 +6,6 @@ import AVFoundation
 final class VisionService {
 
     // MARK: - 配置
-    private let visionQueue = DispatchQueue(
-        label: "com.poseai.visionQueue",
-        qos: .userInitiated
-    )
 
     /// 场景识别最小间隔（秒）
     private let sceneUpdateInterval: TimeInterval = 2.0
@@ -35,6 +31,7 @@ final class VisionService {
     /// bodyBoundingBox: 人体在画面中的归一化包围盒 (x,y,w,h)，可能为 nil（未检测到人）
     var onUpdate: (([String: CGPoint], Bool, CGRect?) -> Void)?
     var onSceneChange: ((SceneType) -> Void)?
+    var onFaceDetected: ((CGRect?) -> Void)?
     /// 暗光监测：检测到人体但关节置信度测极低时触发
     var onLowLight: ((Bool) -> Void)?
     private var lastLowLightTime: Date = .distantPast
@@ -42,11 +39,16 @@ final class VisionService {
     private var isCurrentlyLowLight: Bool = false
 
     var isFrontCamera: Bool = false
+    
+    // EMA 平滑状态
+    private var previousPoints: [String: CGPoint] = [:]
 
     // MARK: - 帧处理入口
-    func process(_ buffer: CMSampleBuffer) {
+    func process(_ buffer: CMSampleBuffer, isDegraded: Bool = false) {
         autoreleasepool {
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(buffer) else { return }
+
+            var requests: [VNRequest] = []
 
             // 1. 高频姿态检测（每帧执行）
             let poseRequest = VNDetectHumanBodyPoseRequest { [weak self] req, error in
@@ -56,18 +58,33 @@ final class VisionService {
                 }
                 self?.handlePose(req)
             }
-            let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
-            visionQueue.async { [weak self] in
-                guard self != nil else { return }
-                try? handler.perform([poseRequest])
+            requests.append(poseRequest)
+
+            // 2. 低频场景分类与人脸检测（组合 Request，优化流水线）
+            let now = Date()
+            let currentInterval = isDegraded ? sceneUpdateInterval * 2 : sceneUpdateInterval
+            let shouldRunLowFreq = now.timeIntervalSince(lastSceneUpdate) > currentInterval
+            
+            if shouldRunLowFreq {
+                lastSceneUpdate = now
+                
+                let faceRequest = VNDetectFaceRectanglesRequest { [weak self] req, _ in
+                    guard let faces = req.results as? [VNFaceObservation], let firstFace = faces.first else {
+                        DispatchQueue.main.async { self?.onFaceDetected?(nil) }
+                        return
+                    }
+                    DispatchQueue.main.async { self?.onFaceDetected?(firstFace.boundingBox) }
+                }
+                requests.append(faceRequest)
             }
 
-            // 2. 低频场景分类（每 2s 一次，防抖 2 帧）
-            let now = Date()
-            if now.timeIntervalSince(lastSceneUpdate) > sceneUpdateInterval {
-                lastSceneUpdate = now
-                let retainedBuffer = pixelBuffer
-                sceneProvider.classify(pixelBuffer: retainedBuffer) { [weak self] scene in
+            // 3. 同步执行：阻塞 Delegate 线程以触发 alwaysDiscardsLateVideoFrames 避免积压
+            let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+            try? handler.perform(requests)
+
+            if shouldRunLowFreq {
+                // 场景分类依赖于 CoreML
+                sceneProvider.classify(pixelBuffer: pixelBuffer) { [weak self] scene in
                     self?.handleSceneResult(scene)
                 }
             }
@@ -108,21 +125,40 @@ final class VisionService {
 
         guard let recognized = try? observation.recognizedPoints(.all) else { return }
 
+        var newPreviousPoints: [String: CGPoint] = [:]
+
         for (joint, point) in recognized {
             guard point.confidence > 0.3 else { continue }
             var x = point.location.x
             if isFrontCamera { x = 1.0 - x }
             let y = 1.0 - point.location.y   // 翻转：0=顶部 1=底部
             guard let key = mapJointName(joint) else { continue }
-            points[key] = CGPoint(x: x, y: y)
-            // 更新包围盒
-            minX = min(minX, x); maxX = max(maxX, x)
-            minY = min(minY, y); maxY = max(maxY, y)
+            
+            // P4-5 关节坐标 EMA 平滑
+            let pointRaw = CGPoint(x: x, y: y)
+            let smoothedPoint: CGPoint
+            if let oldPoint = previousPoints[key] {
+                smoothedPoint = CGPoint(
+                    x: oldPoint.x * 0.6 + pointRaw.x * 0.4,
+                    y: oldPoint.y * 0.6 + pointRaw.y * 0.4
+                )
+            } else {
+                smoothedPoint = pointRaw
+            }
+            
+            points[key] = smoothedPoint
+            newPreviousPoints[key] = smoothedPoint
+            
+            // 更新包围盒使用平滑后的坐标，避免包围盒剧烈抖动
+            minX = min(minX, smoothedPoint.x); maxX = max(maxX, smoothedPoint.x)
+            minY = min(minY, smoothedPoint.y); maxY = max(maxY, smoothedPoint.y)
             if PoseMatcher.lowerBodyJoints.contains(key) {
                 lowerBodyConfSum += point.confidence
                 lowerBodyCount += 1
             }
         }
+        
+        previousPoints = newPreviousPoints
 
         let avgLowerConf = lowerBodyCount > 0 ? lowerBodyConfSum / Float(lowerBodyCount) : 0
         let isHalfBody = avgLowerConf < 0.25

@@ -45,19 +45,17 @@ struct OnboardingView: View {
                 // 跳过按钮
                 HStack {
                     Spacer()
-                    if currentPage < steps.count - 1 {
-                        Button("跳过") {
-                            withAnimation(.easeInOut(duration: 0.3)) {
-                                isPresented = false
-                            }
+                    Button("跳过") {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            isPresented = false
                         }
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.white.opacity(0.45))
-                        .padding(.horizontal, 24)
-                        .padding(.top, 60)
-                    } else {
-                        Spacer().frame(height: 60 + 15 + 24) // 占位保持布局稳定
                     }
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(.white.opacity(0.45))
+                    .padding(.horizontal, 24)
+                    .padding(.top, 16)
+                    // 使用透明度控制可见性，天然保持布局高度稳定
+                    .opacity(currentPage < steps.count - 1 ? 1 : 0)
                 }
 
                 Spacer()
@@ -71,12 +69,12 @@ struct OnboardingView: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .animation(.spring(response: 0.5, dampingFraction: 0.82), value: currentPage)
-                .frame(height: 420)
+                .frame(maxHeight: 380)
 
                 Spacer()
 
                 // 底部：页码指示器 + 按钮
-                VStack(spacing: 32) {
+                VStack(spacing: 24) {
                     // 页码点
                     HStack(spacing: 8) {
                         ForEach(0..<steps.count, id: \.self) { idx in
@@ -146,7 +144,7 @@ struct OnboardingView: View {
                     .padding(.horizontal, 32)
                     .animation(.spring(response: 0.35, dampingFraction: 0.75), value: currentPage)
                 }
-                .padding(.bottom, 52)
+                .padding(.bottom, 24)
             }
         }
     }

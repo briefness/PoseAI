@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import AVFAudio
+import StoreKit
 
 // MARK: - 品牌设计常量
 private enum Design {
@@ -53,9 +54,12 @@ struct ContentView: View {
     @State private var compositionTipTask: DispatchWorkItem? = nil
     @State private var scanTimeoutTask: DispatchWorkItem? = nil
     @State private var planChangeAnimate: Bool = false
-
+    @State private var showSpaceTip: Bool = false
+    @State private var isImmersiveMode: Bool = false
+    
     // MARK: - 连拍与历史状态 (P2-1, P2-2)
     @State private var burstImages: [UIImage] = []
+    @State private var capturedShotsCount: Int = 0
     @State private var expectedBurstCount: Int = 1
     @State private var isReviewingPhotos: Bool = false
     @State private var sessionSavedImages: [UIImage] = []
@@ -64,6 +68,11 @@ struct ContentView: View {
     // MARK: - 内购状态 (P3-3)
     @AppStorage("isPro") var isPro = false
     @State private var showPaywall = false
+
+    // MARK: - 评价打分 (P4-3)
+    @AppStorage("savedPhotoTotalCount") private var savedPhotoTotalCount: Int = 0
+    @AppStorage("reviewRequestCount") private var reviewRequestCount: Int = 0
+    @AppStorage("reviewRequestMonth") private var reviewRequestMonth: String = ""
 
     // MARK: - 倒计时自拍
     @State private var timerSeconds: Int = 0           // 0=关闭, 3/5/10
@@ -103,9 +112,19 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             cameraLayer
+            
+            // 点击进入/退出沉浸模式的手势层
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        isImmersiveMode.toggle()
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+                }
 
-            if isSceneReady {
-                CompositionGuideLines()
+            if isSceneReady && !isImmersiveMode {
+                CompositionGuideLines(composition: currentPlan?.composition)
             }
 
             if !isSceneReady {
@@ -119,32 +138,36 @@ struct ContentView: View {
                         plan: plan,
                         bodyBoundingBox: bodyBoundingBox
                     )
+                    .opacity(isImmersiveMode ? 0.35 : 1.0)
                     .transition(.opacity.animation(.easeInOut(duration: 0.5)))
                     .animation(.easeInOut(duration: 0.4), value: currentPlanIndex)
                 }
             }
 
-            if !requiresProUnlock {
+            if !requiresProUnlock && !isImmersiveMode {
                 if isSceneReady, currentPlan?.frameRatio == .fullBody {
                     arFootprintsOverlay
                 }
             }
 
             // 顶部信息栏
-            VStack(spacing: 0) {
-                topBar
-                    .padding(.top, 58)
-                    .padding(.horizontal, 18)
-                Spacer()
+            if !isImmersiveMode {
+                VStack(spacing: 0) {
+                    topBar
+                        .padding(.top, 58)
+                        .padding(.horizontal, 18)
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
 
             // 构图提示浮层
-            if !requiresProUnlock, showCompositionTip, let plan = currentPlan {
+            if !requiresProUnlock, showCompositionTip, let plan = currentPlan, !isImmersiveMode {
                 compositionTipOverlay(plan: plan)
             }
 
             // 暗光提示 Banner（有人但光线不足时显示）
-            if isLowLight && isSceneReady {
+            if isLowLight && isSceneReady && !isImmersiveMode {
                 lowLightBanner
             }
 
@@ -155,13 +178,18 @@ struct ContentView: View {
             }
 
             // 俯拍警告
-            if manager.devicePitch < -0.35 {
+            if manager.devicePitch < -0.35 && !isImmersiveMode {
                 pitchWarningOverlay
+            }
+            
+            // 留白提醒 (P5-3)
+            if showSpaceTip && manager.devicePitch >= -0.35 && !showCompositionTip && !isImmersiveMode {
+                spaceTipOverlay
             }
 
             // 快门闪光
             if showShutterFlash {
-                Color.white
+                Color(red: 1.0, green: 0.95, blue: 0.88)
                     .ignoresSafeArea()
                     .opacity(0.9)
                     .transition(.opacity)
@@ -185,6 +213,17 @@ struct ContentView: View {
             startScanTimeout()
         }
         .onDisappear { manager.stop() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+            manager.stop()
+            synthesizer.stopSpeaking(at: .immediate)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            evaluateCameraState()
+        }
+        .onChange(of: isReviewingPhotos) { _ in evaluateCameraState() }
+        .onChange(of: showPaywall) { _ in evaluateCameraState() }
+        .onChange(of: showSessionGallery) { _ in evaluateCameraState() }
+        .onChange(of: showGuide) { _ in evaluateCameraState() }
         .sheet(isPresented: $showGuide) {
             PoseGuideSheet(plan: currentPlan, scene: scene)
         }
@@ -195,6 +234,8 @@ struct ContentView: View {
                 sessionSavedImages.append(selectedImage)
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 isReviewingPhotos = false
+                
+                checkAndRequestReview()
             } onRetake: {
                 // 用户点「重拍」
                 isReviewingPhotos = false
@@ -474,7 +515,7 @@ struct ContentView: View {
     private var bottomPanel: some View {
         VStack(spacing: 0) {
             // 方案选择器
-            if isSceneReady {
+            if isSceneReady && !isImmersiveMode {
                 planPickerSection
                     .padding(.top, 10)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -487,22 +528,32 @@ struct ContentView: View {
                 .padding(.horizontal, 28)
         }
         .background(
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .overlay(
+            Group {
+                if isImmersiveMode {
                     LinearGradient(
-                        colors: [Color.black.opacity(0.0), Color.black.opacity(0.55)],
+                        colors: [Color.clear, Color.black.opacity(0.4)],
                         startPoint: .top, endPoint: .bottom
                     )
-                )
-                .overlay(
+                } else {
                     Rectangle()
-                        .frame(height: 0.5)
-                        .foregroundColor(Color.white.opacity(0.12)),
-                    alignment: .top
-                )
+                        .fill(.ultraThinMaterial)
+                        .overlay(
+                            LinearGradient(
+                                colors: [Color.black.opacity(0.0), Color.black.opacity(0.55)],
+                                startPoint: .top, endPoint: .bottom
+                            )
+                        )
+                        .overlay(
+                            Rectangle()
+                                .frame(height: 0.5)
+                                .foregroundColor(Color.white.opacity(0.12)),
+                            alignment: .top
+                        )
+                }
+            }
         )
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: isSceneReady)
+        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: isImmersiveMode)
     }
 
     // MARK: - 方案选择器
@@ -738,6 +789,26 @@ struct ContentView: View {
         .animation(.spring(response: 0.4, dampingFraction: 0.75), value: manager.devicePitch < -0.35)
     }
 
+    // MARK: - 留白提醒
+    private var spaceTipOverlay: some View {
+        VStack {
+            Spacer()
+            HStack(spacing: 10) {
+                Image(systemName: "rectangle.arrowtriangle.2.outward")
+                    .foregroundColor(Design.accent)
+                Text("尝试平移留出一点空白，更有氛围感")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+            }
+            .padding(.horizontal, 18).padding(.vertical, 12)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().stroke(Design.accent.opacity(0.5), lineWidth: 1))
+            .padding(.bottom, 170)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: showSpaceTip)
+    }
+
     // 暗光提示 Banner
     private var lowLightBanner: some View {
         VStack {
@@ -780,6 +851,7 @@ struct ContentView: View {
                     self.stableStartTime = Date()
                     if !self.hapticCooldown {
                         self.hapticCooldown = true
+                        UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
                         self.speak("对齐啦，保持不动！")
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
                             self.hapticCooldown = false
@@ -792,6 +864,21 @@ struct ContentView: View {
                 }
             } else {
                 self.stableStartTime = nil
+            }
+            
+            // MARK: P5-3 留白智能提醒
+            if let bbox = bbox {
+                if plan.composition != .center && abs(bbox.midX - 0.5) < 0.05 {
+                    if !self.showSpaceTip && pts.count >= 4 {
+                        withAnimation(.easeInOut(duration: 0.5)) { self.showSpaceTip = true }
+                    }
+                } else {
+                    if self.showSpaceTip {
+                        withAnimation(.easeInOut(duration: 0.5)) { self.showSpaceTip = false }
+                    }
+                }
+            } else if self.showSpaceTip {
+                withAnimation(.easeInOut(duration: 0.5)) { self.showSpaceTip = false }
             }
 
             // MARK: P1-4 姿势亲近度自动推荐
@@ -843,10 +930,41 @@ struct ContentView: View {
                 }
             }
         }
+        
+        manager.visionService.onFaceDetected = { rect in
+            manager.setFaceExposure(faceRect: rect)
+        }
 
         manager.onPhotoCapture = { [self] image in
             self.burstImages.append(image)
-            if self.burstImages.count >= self.expectedBurstCount {
+            
+            // P5-2 智能裁切：提供一个根据 bodyBoundingBox 生成近景（胸腰特写）的底片
+            if let cgImage = image.cgImage, let bbox = self.bodyBoundingBox {
+                let iw = CGFloat(cgImage.width)
+                let ih = CGFloat(cgImage.height)
+                
+                // bbox的归一化Y是在Vision坐标系下转换得到的（我们在VisionService里做了1.0-y计算），
+                // 在图像渲染中原点同样可以看做左上角，此处的矩形对应人像在全图中的边界。
+                // 向上留出一点头部空间（约全体高度的 10%）
+                let cropY = max(0, bbox.minY * ih - ih * 0.10)
+                // 高度：如果原图是全身照，可以裁到腹部以下。比如裁切其整体身高的一半
+                let cropH = min(ih - cropY, max(bbox.height * 0.5 * ih, iw * 0.8))
+                // 常见社交画幅近似 4:5 (比如 Instagram 特写图)
+                let cropW = cropH * 0.8
+                let cx = bbox.midX * iw
+                let cropX = max(0, cx - cropW / 2)
+                
+                let cropRect = CGRect(x: cropX, y: cropY, width: cropW, height: cropH)
+                    .intersection(CGRect(x: 0, y: 0, width: iw, height: ih))
+                
+                if cropRect.width > iw * 0.3, let cropped = cgImage.cropping(to: cropRect) {
+                    let croppedImage = UIImage(cgImage: cropped, scale: image.scale, orientation: image.imageOrientation)
+                    self.burstImages.append(croppedImage)
+                }
+            }
+            
+            self.capturedShotsCount += 1
+            if self.capturedShotsCount >= self.expectedBurstCount {
                 self.isReviewingPhotos = true
             }
         }
@@ -855,7 +973,16 @@ struct ContentView: View {
             withAnimation(.easeInOut(duration: 0.4)) { self.isLowLight = isLow }
         }
 
-        manager.start()
+        evaluateCameraState()
+    }
+
+    // MARK: - 生命周期与相机状态管理
+    private func evaluateCameraState() {
+        if isReviewingPhotos || showPaywall || showSessionGallery || showGuide {
+            manager.stop()
+        } else {
+            manager.start()
+        }
     }
 
     private func startScanTimeout() {
@@ -900,6 +1027,7 @@ struct ContentView: View {
         isCapturing = true
         expectedBurstCount = count
         burstImages.removeAll()
+        capturedShotsCount = 0
         var taken = 0
         
         func snap() {
@@ -910,10 +1038,8 @@ struct ContentView: View {
             manager.takePhoto()
             triggerFlash()
             taken += 1
-            if taken < count {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    snap()
-                }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                snap()
             }
         }
         snap()
@@ -966,9 +1092,16 @@ struct ContentView: View {
     }
 
     private func triggerFlash() {
-        withAnimation(.easeIn(duration: 0.07)) { showShutterFlash = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.11) {
+        let oldBrightness = UIScreen.main.brightness
+        UIScreen.main.brightness = 1.0
+        
+        withAnimation(.easeIn(duration: 0.15)) { showShutterFlash = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             withAnimation(.easeOut(duration: 0.2)) { self.showShutterFlash = false }
+            // 恢复亮度
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                UIScreen.main.brightness = oldBrightness
+            }
         }
     }
 
@@ -978,6 +1111,27 @@ struct ContentView: View {
         utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN")
         utterance.rate = 0.52
         synthesizer.speak(utterance)
+    }
+
+    private func checkAndRequestReview() {
+        savedPhotoTotalCount += 1
+        
+        guard savedPhotoTotalCount >= 3, score > successThreshold else { return }
+        
+        let currentMonth = Calendar.current.component(.month, from: Date())
+        let monthKey = "\(Calendar.current.component(.year, from: Date()))-\(currentMonth)"
+        
+        if reviewRequestMonth != monthKey {
+            reviewRequestMonth = monthKey
+            reviewRequestCount = 0
+        }
+        
+        guard reviewRequestCount < 2 else { return }
+        
+        if let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene {
+            SKStoreReviewController.requestReview(in: scene)
+            reviewRequestCount += 1
+        }
     }
 }
 
@@ -1097,27 +1251,55 @@ struct TagBadge: View {
     }
 }
 
-// MARK: - 构图辅助线（三分法，极淡）
+// MARK: - 构图辅助线（三分法 / 黄金螺旋）
 struct CompositionGuideLines: View {
+    var composition: CompositionRule?
+
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
             let h = geo.size.height
             Canvas { ctx, size in
                 var path = Path()
-                [w/3, w*2/3].forEach { x in
-                    path.move(to: CGPoint(x: x, y: 0))
-                    path.addLine(to: CGPoint(x: x, y: h))
+                
+                // 判断是否绘制黄金螺旋
+                if composition == .goldenLeft || composition == .goldenRight {
+                    // P5-6 黄金螺旋线构图
+                    let isRight = (composition == .goldenRight)
+                    // 简化的黄金螺旋装饰线：结合斐波那契矩形的特征画曲线
+                    let pivotX = isRight ? w * 0.618 : w * 0.382
+                    let pivotY = h * 0.382 // 焦点通常在上方偏右或偏左
+                    
+                    // 用极坐标方式或简单贝塞尔曲线画一条装饰用的螺旋线
+                    path.move(to: CGPoint(x: isRight ? 0 : w, y: h))
+                    path.addQuadCurve(
+                        to: CGPoint(x: pivotX, y: pivotY),
+                        control: CGPoint(x: isRight ? w * 0.2 : w * 0.8, y: pivotY + h * 0.1)
+                    )
+                    
+                    ctx.stroke(path, with: .color(Design.accent.opacity(0.3)), lineWidth: 1.5)
+                    
+                    // 画个焦点提示
+                    var focus = Path()
+                    focus.addEllipse(in: CGRect(x: pivotX - 4, y: pivotY - 4, width: 8, height: 8))
+                    ctx.stroke(focus, with: .color(Design.accent.opacity(0.5)), lineWidth: 1)
+                } else {
+                    // 三分法
+                    [w/3, w*2/3].forEach { x in
+                        path.move(to: CGPoint(x: x, y: 0))
+                        path.addLine(to: CGPoint(x: x, y: h))
+                    }
+                    [h/3, h*2/3].forEach { y in
+                        path.move(to: CGPoint(x: 0, y: y))
+                        path.addLine(to: CGPoint(x: w, y: y))
+                    }
+                    ctx.stroke(path, with: .color(.white.opacity(0.06)), lineWidth: 1)
                 }
-                [h/3, h*2/3].forEach { y in
-                    path.move(to: CGPoint(x: 0, y: y))
-                    path.addLine(to: CGPoint(x: w, y: y))
-                }
-                ctx.stroke(path, with: .color(.white.opacity(0.06)), lineWidth: 1)
             }
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
+        .animation(.easeInOut(duration: 0.5), value: composition)
     }
 }
 
@@ -1168,6 +1350,21 @@ struct SilhouetteGuideOverlay: View {
                             dash: isAligned ? [] : [10, 7]
                         )
                     )
+                    
+                // P4-6 剪影左右标注
+                HStack {
+                    Text("左手边")
+                        .font(.system(size: 12, weight: .black))
+                        .foregroundColor(isAligned ? Design.success : .white.opacity(0.6))
+                        .rotationEffect(.degrees(-90))
+                        .offset(x: -30)
+                    Spacer()
+                    Text("右手边")
+                        .font(.system(size: 12, weight: .black))
+                        .foregroundColor(isAligned ? Design.success : .white.opacity(0.6))
+                        .rotationEffect(.degrees(90))
+                        .offset(x: 30)
+                }
             }
             .frame(width: silW, height: silH)
             .shadow(color: isAligned ? Design.successGlow : .clear, radius: 14)
@@ -1554,9 +1751,18 @@ struct PhotoPreviewView: View {
                             guard selectedIndex < images.count else { return }
                             let watermarkedImg = isPro ? images[selectedIndex] : images[selectedIndex].withPoseAIWatermark()
                             let av = UIActivityViewController(activityItems: [watermarkedImg], applicationActivities: nil)
-                            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                               let root = scene.windows.first?.rootViewController {
-                                root.present(av, animated: true)
+                            if let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+                               let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                                var topVC = root
+                                while let presented = topVC.presentedViewController {
+                                    topVC = presented
+                                }
+                                // iPad 支持
+                                if UIDevice.current.userInterfaceIdiom == .pad {
+                                    av.popoverPresentationController?.sourceView = topVC.view
+                                    av.popoverPresentationController?.sourceRect = CGRect(x: topVC.view.bounds.midX, y: topVC.view.bounds.maxY, width: 0, height: 0)
+                                }
+                                topVC.present(av, animated: true)
                             }
                         } label: {
                             VStack(spacing: 6) {

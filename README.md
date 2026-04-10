@@ -34,7 +34,8 @@
 | 前后置镜头适配 | X 轴镜像自动修正（关节坐标 + 预览层） |
 | 俯拍角度警告 | `CoreMotion` 检测俯仰角，防止俯拍出显矮角度 |
 | 识别降级容错 | 模型加载失败 → Mock；8 秒未识别 → 自动进入咖啡馆通用方案 |
-| 内存安全 | `autoreleasepool` 逐帧释放 `CVPixelBuffer`，防止 30fps 内存暴涨 |
+| 极致内存管控 | `autoreleasepool` + 强制 `frameQueue` 同步阻塞推理，接管底层 `alwaysDiscardsLateVideoFrames` 实现 0 延迟实时丢帧，杜绝 OOM |
+| 硬件级精准测光 | 软解码坐标映射硬件：将 Vision 竖屏 (Portrait) 坐标映射至原生 Lens (Landscape) 物理靶心执行自动曝光补偿 |
 
 ### 拍摄增强
 
@@ -253,13 +254,14 @@ top-1 置信度兜底（> 0.05 → 咖啡馆通用）
 强制进入通用方案（用户可手动选择底部方案卡片）
 ```
 
-### 线程模型
+### 生产级并发与线程模型（Hardened 架构）
+
+为确保 30fps 画面采集下零掉帧无延迟，取消了常规的 `.async` 队列堆积，实行硬阻塞丢包策略：
 
 ```
-frameQueue     (userInteractive)  → 视频帧 I/O，delegate 回调
-visionQueue    (userInitiated)    → Vision / CoreML 推理计算
-DispatchQueue.main                → UI 回调（points / bbox / scene）
-motionManager  → .main            → 俯仰角更新（0.2s 一次）
+frameQueue     (userInteractive)  → 视频帧 I/O 与推流，强制【同步执行】Vision推理，一旦处理超时自动触发 AVFoundation 底层丢帧 (0 历史积压)。
+DispatchQueue.main                → UI 更新（points / bbox / scene），轻请求无阻塞。
+motionManager  → .main            → 俯仰角传感器数据。
 ```
 
 ### 低通滤波参数
@@ -284,8 +286,8 @@ score = score × 0.7 + newScore × 0.3   // α = 0.3
 | **P1** 核心体验 | ✅ 已完成 | 照片预览、倒计时自拍、暗光提示、智能推荐 |
 | **P2** 差异化留存 | ✅ 已完成 | 连拍选片、拍摄历史、7 场景方案库、社交水印分享 |
 | **P3** 商业化 | ✅ 已完成 | 隐私协议、Pro 内购 Paywall |
-| **P4** 稳定加固 | 📋 待执行 | 后台暂停、性能降级、Review Prompt、关节平滑、剪影标注 |
-| **P5** 出片质感 | 📋 待执行 | 快门音效、智能裁切、留白提醒、CIFilter 调色、曝光补偿 |
+| **P4** 稳定加固 | ✅ 已完成 | 零积压硬丢帧、Sensor 坐标系映射修补、后台恢复拦截防空转、性能降级与 EMA 平滑 |
+| **P5** 出片质感 | ✅ 已完成 | 快门物理反馈、智能裁切特写版底片、人脸动态曝光补偿、留白智能提醒构图 |
 
 > 完整任务清单及执行记录详见 [`tasks/todo.md`](tasks/todo.md)
 
