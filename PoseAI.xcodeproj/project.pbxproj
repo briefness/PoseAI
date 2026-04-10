@@ -12,6 +12,7 @@
 		83CBBA071A601CBA00E9B192 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83CBB9FE1A601CBA00E9B192 /* Models.swift */; };
 		83CBBA081A601CBA00E9B192 /* PoseMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83CBB9FF1A601CBA00E9B192 /* PoseMatcher.swift */; };
 		83CBBA091A601CBA00E9B192 /* VisionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83CBBA001A601CBA00E9B192 /* VisionService.swift */; };
+				AA000002AA000002AA000002 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001AA000001AA000001 /* OnboardingView.swift */; };
 		83CBBA0A1A601CBA00E9B192 /* CameraManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83CBBA011A601CBA00E9B192 /* CameraManager.swift */; };
 		83CBBA0B1A601CBA00E9B192 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 83CBBA031A601CBA00E9B192 /* Assets.xcassets */; };
 		A07818972F87A2A7009E8FD0 /* MobileNetV2.mlmodel in Sources */ = {isa = PBXBuildFile; fileRef = A07818962F87A2A7009E8FD0 /* MobileNetV2.mlmodel */; };
@@ -24,6 +25,7 @@
 		83CBB9FE1A601CBA00E9B192 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		83CBB9FF1A601CBA00E9B192 /* PoseMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoseMatcher.swift; sourceTree = "<group>"; };
 		83CBBA001A601CBA00E9B192 /* VisionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionService.swift; sourceTree = "<group>"; };
+				AA000001AA000001AA000001 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		83CBBA011A601CBA00E9B192 /* CameraManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraManager.swift; sourceTree = "<group>"; };
 		83CBBA021A601CBA00E9B192 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		83CBBA031A601CBA00E9B192 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -60,6 +62,7 @@
 				83CBB9FF1A601CBA00E9B192 /* PoseMatcher.swift */,
 				83CBBA001A601CBA00E9B192 /* VisionService.swift */,
 				83CBBA011A601CBA00E9B192 /* CameraManager.swift */,
+				AA000001AA000001AA000001 /* OnboardingView.swift */,
 				83CBBA021A601CBA00E9B192 /* Info.plist */,
 				DA12345678901234567890AA /* Poses.json */,
 				83CBBA031A601CBA00E9B192 /* Assets.xcassets */,
@@ -154,6 +157,7 @@
 				83CBBA081A601CBA00E9B192 /* PoseMatcher.swift in Sources */,
 				83CBBA091A601CBA00E9B192 /* VisionService.swift in Sources */,
 				83CBBA0A1A601CBA00E9B192 /* CameraManager.swift in Sources */,
+				AA000002AA000002AA000002 /* OnboardingView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

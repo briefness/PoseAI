@@ -30,8 +30,16 @@ final class VisionService {
     }()
 
     // MARK: - 回调
-    var onUpdate: (([String: CGPoint], Bool) -> Void)?
+    /// points: 关节归一化坐标(0~1)
+    /// isHalfBody: 是否半身
+    /// bodyBoundingBox: 人体在画面中的归一化包围盒 (x,y,w,h)，可能为 nil（未检测到人）
+    var onUpdate: (([String: CGPoint], Bool, CGRect?) -> Void)?
     var onSceneChange: ((SceneType) -> Void)?
+    /// 暗光监测：检测到人体但关节置信度测极低时触发
+    var onLowLight: ((Bool) -> Void)?
+    private var lastLowLightTime: Date = .distantPast
+    private let lowLightInterval: TimeInterval = 5.0
+    private var isCurrentlyLowLight: Bool = false
 
     var isFrontCamera: Bool = false
 
@@ -87,13 +95,16 @@ final class VisionService {
     // MARK: - 姿态结果解析
     private func handlePose(_ request: VNRequest) {
         guard let observation = request.results?.first as? VNHumanBodyPoseObservation else {
-            DispatchQueue.main.async { [weak self] in self?.onUpdate?([:], true) }
+            DispatchQueue.main.async { [weak self] in self?.onUpdate?([:], true, nil) }
             return
         }
 
         var points: [String: CGPoint] = [:]
         var lowerBodyConfSum: Float = 0
         var lowerBodyCount = 0
+        // 用于计算人体包围盒（归一化坐标系，翻转 y 使 0=顶部）
+        var minX: CGFloat = 1.0, maxX: CGFloat = 0.0
+        var minY: CGFloat = 1.0, maxY: CGFloat = 0.0
 
         guard let recognized = try? observation.recognizedPoints(.all) else { return }
 
@@ -101,9 +112,12 @@ final class VisionService {
             guard point.confidence > 0.3 else { continue }
             var x = point.location.x
             if isFrontCamera { x = 1.0 - x }
-            let y = 1.0 - point.location.y
+            let y = 1.0 - point.location.y   // 翻转：0=顶部 1=底部
             guard let key = mapJointName(joint) else { continue }
             points[key] = CGPoint(x: x, y: y)
+            // 更新包围盒
+            minX = min(minX, x); maxX = max(maxX, x)
+            minY = min(minY, y); maxY = max(maxY, y)
             if PoseMatcher.lowerBodyJoints.contains(key) {
                 lowerBodyConfSum += point.confidence
                 lowerBodyCount += 1
@@ -113,7 +127,24 @@ final class VisionService {
         let avgLowerConf = lowerBodyCount > 0 ? lowerBodyConfSum / Float(lowerBodyCount) : 0
         let isHalfBody = avgLowerConf < 0.25
 
-        DispatchQueue.main.async { [weak self] in self?.onUpdate?(points, isHalfBody) }
+        // 有效点足够多时才输出包围盒
+        let bbox: CGRect? = points.count >= 3
+            ? CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+            : nil
+
+        // MARK: 暗光检测：有人（observation 存在）但有效关节点极少 → 光线不足
+        // 阈值：有效点 < 4（正常光线下应该能识别 8+ 个关节）
+        let lowLight = points.count < 4
+        let now = Date()
+        if lowLight != isCurrentlyLowLight {
+            if now.timeIntervalSince(lastLowLightTime) > lowLightInterval || !lowLight {
+                isCurrentlyLowLight = lowLight
+                lastLowLightTime = now
+                DispatchQueue.main.async { [weak self] in self?.onLowLight?(lowLight) }
+            }
+        }
+
+        DispatchQueue.main.async { [weak self] in self?.onUpdate?(points, isHalfBody, bbox) }
     }
 
     // MARK: - 关节字段映射

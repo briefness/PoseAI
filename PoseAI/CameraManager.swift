@@ -10,6 +10,9 @@ final class CameraManager: NSObject, ObservableObject {
     let session = AVCaptureSession()
     let visionService = VisionService()
 
+    /// 拍照成功回调，传回原始 UIImage，由上层 UI 决定是否保存
+    var onPhotoCapture: ((UIImage) -> Void)?
+
     @Published var isFront: Bool = false {
         didSet {
             visionService.isFrontCamera = isFront
@@ -160,15 +163,16 @@ extension CameraManager: AVCapturePhotoCaptureDelegate {
             print("📸 照片捕获失败: \(String(describing: error))")
             return
         }
-        guard let imageData = photo.fileDataRepresentation() else { return }
-        guard let image = UIImage(data: imageData) else { return }
-        
-        // 拍照成功的触觉反馈与屏幕闪烁（这里简单用重型震动代表）
-        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-        
-        // 将照片保存到相册
-        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-        print("📸 照片已成功保存至相册！")
+        guard let imageData = photo.fileDataRepresentation(),
+              let image = UIImage(data: imageData) else { return }
+
+        // 触觉反馈
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+
+        // 回调给上层（ContentView 负责展示预览 + 用户确认后保存）
+        DispatchQueue.main.async { [weak self] in
+            self?.onPhotoCapture?(image)
+        }
     }
 }
 

@@ -23,7 +23,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>PoseAI 需要访问摄像头以实时检测你的姿势，帮助你拍出与场景完美匹配的照片。</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string></string>
+	<string>PoseAI 会将拍摄完成的照片保存到你的相册，方便随时查看和分享。</string>
 	<key>UIStatusBarHidden</key>
 	<true/>
 	<key>UISupportedInterfaceOrientations</key>
